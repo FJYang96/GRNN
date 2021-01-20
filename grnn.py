@@ -1,0 +1,94 @@
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+import torch.nn as nn
+import torch.optim as optim
+import networkx as nx
+from controller import GRNNController
+
+class GRNN(nn.Module):
+    """ A simplified version of the Graph Recurrent Neural Network
+    """
+    def __init__(self, S, N, T, p=1, q=1, h=5, S_trainable=True):
+        """ Constructor
+        Parameters:
+            - S:            None/torch.tensor(N,N), the communication topolgy
+                            if is None, then the topology will be treated as a
+                            parameter to be optimized
+            - N:            integer, number of agents
+            - T:            integer, time horizon
+            - p:            integer, state dimension of each agent
+            - q:            integer, control dimension of each agent
+            - h:            integer, hidden state dimension of each agent
+            - S_trainable:  bool, indicates whether we can optimize the entries
+                            in S
+        """
+        super().__init__()
+        self.N, self.T, self.p, self.q, self.h = N, T, p, q, h
+        # Initialize S
+        if S is None:
+            # If S is none, we treat the graph topology as a parameter we want
+            # to optimize
+            initial_S = torch.rand((N,N), dtype=torch.double)
+            initial_S = initial_S / initial_S.sum(1)[:,None]
+            self.register_parameter(name='S',
+                    param=torch.nn.Parameter(initial_S))
+            self.S_entries = None
+            self.S_inds = None
+        else:
+            # If S is given, we do not design the topology
+            if S_trainable:
+                self.S_inds = (S != 0)
+                self.register_parameter(name='S_entries',
+                        param=torch.nn.Parameter(S[self.S_inds]))
+            else:
+                self.S = S
+                self.S_entries = None
+                self.S_inds = None
+        self.register_parameter(name='A',
+                param=torch.nn.Parameter(torch.randn(p,h, dtype=torch.double)))
+        self.register_parameter(name='B',
+                param=torch.nn.Parameter(torch.randn(h,q, dtype=torch.double)))
+
+    def _graph_conv(self, X, Z):
+        Z_new = torch.tanh( torch.matmul(self.S_(), Z) + torch.matmul(X, self.A) )
+        u = torch.mm(Z_new, self.B)
+        return Z_new, u
+
+    def forward(self, x0, A_, B_):
+        # Change the notation here later. A_ (dynamics) =/= A (network parameter)
+        x_traj = self.A.new_empty((self.T+1, self.N, self.q))
+        u_traj = self.A.new_empty((self.T, self.N, self.q))
+        x_traj[0,:,:] = torch.unsqueeze(x0,1)
+        Z = self.A.new_zeros((self.T+1,self.N, self.h))
+        for t in range(self.T):
+          # Something annoying about the in-place operations here with pytorch
+          # Hence the .clone() for some of the tensors we are using
+          xt = x_traj[t].clone()
+          Zt, ut = self._graph_conv(xt, Z[t,:,:].clone())
+          x_traj[t+1] = A_ @ xt + B_ @ ut
+          u_traj[t] = ut
+          Z[t+1] = Zt
+        return x_traj, u_traj
+
+    def S_(self):
+        """ This gives us the S matrix for different training configurations.
+        Always use this instead of using self.S
+        """
+        if self.S_entries is None:
+            return self.S
+        else:
+            S = self.S_entries.new_zeros((self.N, self.N))
+            S[self.S_inds] = self.S_entries
+            return S
+
+    def get_params(self):
+        ## TODO: cover the case of parameter S
+        return self.S_().detach().clone(),\
+                self.A.detach().clone(),\
+                self.B.detach().clone()
+
+    def get_controller(self):
+        return GRNNController(self)
+
