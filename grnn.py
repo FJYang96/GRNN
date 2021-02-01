@@ -56,18 +56,17 @@ class GRNN(nn.Module):
         u = torch.mm(Z_new, self.B)
         return Z_new, u
 
-    def forward(self, x0, A_, B_):
-        # Change the notation here later. A_ (dynamics) =/= A (network parameter)
+    def forward(self, x0, step):
         x_traj = self.A.new_empty((self.T+1, self.N, self.q))
         u_traj = self.A.new_empty((self.T, self.N, self.q))
-        x_traj[0,:,:] = torch.unsqueeze(x0,1)
+        x_traj[0] = x0
         Z = self.A.new_zeros((self.T+1,self.N, self.h))
         for t in range(self.T):
           # Something annoying about the in-place operations here with pytorch
           # Hence the .clone() for some of the tensors we are using
           xt = x_traj[t].clone()
           Zt, ut = self._graph_conv(xt, Z[t,:,:].clone())
-          x_traj[t+1] = A_ @ xt + B_ @ ut
+          x_traj[t+1] = step(xt, ut)
           u_traj[t] = ut
           Z[t+1] = Zt
         return x_traj, u_traj
@@ -79,6 +78,8 @@ class GRNN(nn.Module):
         if self.S_entries is None:
             return self.S
         else:
+            #TODO: make this more efficient. Allocating a new array every time
+            #seems very wastful
             S = self.S_entries.new_zeros((self.N, self.N))
             S[self.S_inds] = self.S_entries
             return S
