@@ -82,8 +82,16 @@ class DistributedLQREnv(AbstractEnv):
     def get_optimal_controller(self):
         return LQRSSController(self.K, self.N)
 
-    def instability_cost(self, x, u):
-        pass
+    def instability_cost(self, x, rho=.9):
+        T = x.size(0) - 1
+        x_ = x.flatten(1)
+        lyap_values = (x_[:T+1] * (x_[:T+1] @ self.X)).sum(1)
+        violations = torch.maximum(lyap_values[1:] - rho * lyap_values[:T],
+                torch.zeros(T))
+        return torch.sum(violations)
+
+    def lyapunov_function(X, state):
+        return np.dot(state, X.dot(state))
 
 def _sample_adjacency_matrix(N, degree):
     """ Samples a random adjacency matrix; See below for details """
@@ -218,9 +226,6 @@ def _lqr_solve(A, B, Q=None, R=None, rho=.9, eps=.01):
     return torch.tensor(P, device=A.device), \
             torch.tensor(K, device=A.device), \
             torch.tensor(X, device=A.device)
-
-def lyapunov_function(X, state):
-    return np.dot(state, X.dot(state))
 
 def decrease_soft_constraint(X, x, controller):
     def f_closed_loop(x):

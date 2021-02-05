@@ -26,6 +26,32 @@ def train_model(model, env, criterion,
         optimizer.step()
     return model
 
+def generate_model(model_params, env, criterion, T, device,
+        use_given_support, batch_size=20, num_epoch=100, ensemble_size=2,
+        val_size=50, verbose=False):
+    # Generate graph support
+    if use_given_support:
+        S = env.S.clone()
+    else:
+        S = None
+
+    # Train multiple models
+    models, costs = [], []
+    for _ in range(ensemble_size):
+        model = grnn.GRNN(S, **model_params).to(device)
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        for epoch in range(num_epoch):
+            model.zero_grad()
+            loss = train_it(model, env, criterion, batch_size=batch_size)
+            if(verbose and epoch % 10 == 0):
+                print('Epoch: {} \t Loss: {}'.format(epoch+1, loss.item()))
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+            optimizer.step()
+        models.append(model)
+        costs.append(estimate_grnn_cost(env, model, T, num_x0s=val_size)[1])
+    return models[np.argmin(costs)]
+
 def grnn_topology(env, criterion, model_params, threshold, device, batch_size=20,
         num_epoch=100, verbose=False):
     model = grnn.GRNN(None, **model_params).to(device)
