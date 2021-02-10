@@ -27,12 +27,12 @@ def train_model(model, env, criterion,
     return model
 
 def generate_model(model_params, env, criterion, T, device,
-        use_given_support, batch_size=20, num_epoch=100, ensemble_size=2,
+        use_given_support, S=None, batch_size=20, num_epoch=100, ensemble_size=2,
         val_size=50, verbose=False):
     # Generate graph support
-    if use_given_support:
-        S = env.S.clone()
-    else:
+    assert (not use_given_support) or \
+            (use_given_support and (not S is None))
+    if not use_given_support:
         S = None
 
     # Train multiple models
@@ -52,11 +52,10 @@ def generate_model(model_params, env, criterion, T, device,
         costs.append(estimate_grnn_cost(env, model, T, num_x0s=val_size)[1])
     return models[np.argmin(costs)]
 
-def grnn_topology(env, criterion, model_params, threshold, device, batch_size=20,
-        num_epoch=100, verbose=False):
-    model = grnn.GRNN(None, **model_params).to(device)
-    model = train_model(model, env, criterion, num_epoch=num_epoch)
-    return model.S_().detach()
+def grnn_topology(env, model_params, training_params, verbose=False):
+    model = generate_model(model_params, env, use_given_support=False,
+            **training_params)
+    return model.S_().detach(), model
 
 def sim_controllers(env, x0, controllers, T, device):
     """ Simulates a list of controllers for one episode
