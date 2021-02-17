@@ -6,11 +6,10 @@ import grnn, env.dlqr
 
 def train_it(model, env, criterion, batch_size):
     error = 0
-    for i in range(batch_size):
-        x0 = env.random_x0()
-        xtraj, utraj = model.forward(x0, env.step)
-        error += criterion(xtraj, utraj, env, model)
-    loss = error / batch_size
+    x0s = env.random_x0(batch_size)
+    xtraj, utraj = model.forward(x0s, env.step)
+    error += criterion(xtraj, utraj, env, model)
+    loss = torch.sum(error) / batch_size
     return loss
 
 def train_model(model, env, criterion,
@@ -57,12 +56,13 @@ def grnn_topology(env, model_params, training_params, verbose=False):
             **training_params)
     return model.S_().detach(), model
 
-def sim_controllers(env, x0, controllers, T, device):
+def sim_controllers(env, x0s, controllers, T, device):
     """ Simulates a list of controllers for one episode
     """
     xs, us, costs = [], [], []
     for c in controllers:
-        x, u = env.sim_forward(c, T, x0=x0)
+        print(c)
+        x, u = env.sim_forward(c, T, x0s=x0s)
         cost = env.cost(x, u)
         xs.append(x); us.append(u)
         costs.append(cost.detach().cpu().item())

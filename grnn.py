@@ -53,22 +53,23 @@ class GRNN(nn.Module):
 
     def _graph_conv(self, X, Z):
         Z_new = torch.tanh( torch.matmul(self.S_(), Z) + torch.matmul(X, self.A) )
-        u = torch.mm(Z_new, self.B)
+        u = torch.matmul(Z_new, self.B)
         return Z_new, u
 
     def forward(self, x0, step):
-        x_traj = self.A.new_empty((self.T+1, self.N, self.q))
-        u_traj = self.A.new_empty((self.T, self.N, self.q))
-        x_traj[0] = x0
-        Z = self.A.new_zeros((self.T+1,self.N, self.h))
+        batch_size = x0.size(0)
+        x_traj = self.A.new_empty((batch_size, self.T+1, self.N, self.q))
+        u_traj = self.A.new_empty((batch_size, self.T, self.N, self.q))
+        x_traj[:,0,:,:] = x0
+        Z = self.A.new_zeros((batch_size, self.T+1, self.N, self.h))
         for t in range(self.T):
           # Something annoying about the in-place operations here with pytorch
           # Hence the .clone() for some of the tensors we are using
-          xt = x_traj[t].clone()
-          Zt, ut = self._graph_conv(xt, Z[t,:,:].clone())
-          x_traj[t+1] = step(xt, ut)
-          u_traj[t] = ut
-          Z[t+1] = Zt
+          xt = x_traj[:,t,:,:].clone()
+          Zt, ut = self._graph_conv(xt, Z[:,t,:,:].clone())
+          x_traj[:,t+1,:,:] = step(xt, ut)
+          u_traj[:,t,:,:] = ut
+          Z[:,t+1,:,:] = Zt
         return x_traj, u_traj
 
     def S_(self):
@@ -85,11 +86,10 @@ class GRNN(nn.Module):
             return S
 
     def get_params(self):
-        ## TODO: cover the case of parameter S
         return self.S_().detach().clone(),\
                 self.A.detach().clone(),\
                 self.B.detach().clone()
 
-    def get_controller(self):
-        return GRNNController(self)
+    def get_controller(self, batch_size):
+        return GRNNController(self, batch_size)
 

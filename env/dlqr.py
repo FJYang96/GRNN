@@ -32,63 +32,64 @@ class DistributedLQREnv(AbstractEnv):
         system state in the GNN literature (and the representation we in this
         package but outside this environment is 2D of size N x p.
         """
-        xi_, ui_ = xi.flatten(), ui.flatten()
-        x_next = self.A @ xi_ + self.B @ ui_
-        return x_next.view(self.N, -1)
+        xi_, ui_ = xi.flatten(1), ui.flatten(1)
+        x_next = self.A @ xi_.T + self.B @ ui_.T
+        return x_next.T.view(xi.size(0), self.N, -1)
 
-    def sim_forward(self, controller, T, x0=None):
+    def sim_forward(self, controller, T, x0s=None):
         """ Take an intial condition and controller, outputs the state and control
         trajecories of the system.
         Parameters:
-            x0:         torch.tensor(p), initial state
+            x0:         torch.tensor(b, p), initial state
             controller: function/method, takes in a state and outputs the control
             A:          torch.tensor(p, p), state transition matrix
             B:          torch.tensor(p, q), control transition matrix
             T:          integer, time horizon
             device:     device, specifies where to carry out the simulation
         Returns:
-            x:          torch.tensor(T, p), state trajectory
-            u:          torch.tensor(T, q), control trajectory
+            x:          torch.tensor(b, T, p), state trajectory
+            u:          torch.tensor(b, T, q), control trajectory
         """
-        # TODO: enable batch processing
-        x = torch.zeros((T+1, self.N, self.p), dtype=torch.double,
+        if x0s is None:
+            x0s = self.random_x0()
+        batch_size = x0s.size(0)
+        x = torch.zeros((batch_size, T+1, self.N, self.p), dtype=torch.double,
                 device=self.device)
-        u = torch.zeros((T, self.N, self.q), dtype=torch.double,
+        u = torch.zeros((batch_size, T, self.N, self.q), dtype=torch.double,
                 device=self.device)
-        if x0 is None:
-            x0 = self.random_x0()
-        x[0] = x0
+        x[:,0] = x0s
         for t in range(T):
-            ut = controller.control(x[t]).to(self.device)
-            x[t+1] = self.step(x[t], ut)
-            u[t] = ut
+            ut = controller.control(x[:,t])
+            x[:,t+1] = self.step(x[:,t], ut)
+            u[:,t] = ut
         return x, u
 
-    def random_x0(self):
+    def random_x0(self, num_samples=1):
         """ Generate a random initial condition """
-        return torch.randn((self.N, self.p), dtype=torch.double,
+        return torch.randn((num_samples, self.N, self.p), dtype=torch.double,
                 device=self.device)
 
     def cost(self, x, u):
         """ Compute the cost of a given (x, u) trajectory """
         # note that * has higher precedence than @
-        T = u.size(0)
-        x_, u_ = x.flatten(1), u.flatten(1)
-        state_cost = torch.sum(x_[:T] * (x_[:T] @ self.Q)) + \
-                x_[T].dot(self.QT @ x_[T])
-        control_cost = torch.sum(u_ * (u_ @ self.R))
-        return state_cost + control_cost
+        batch_size, T, _, _ = u.size()
+        x_, u_ = x.flatten(2), u.flatten(2)
+        state_costs = (x_[:,:T] * (x_[:,:T] @ self.Q))
+        state_cost = state_costs.view(batch_size, -1).sum(1)
+        terminal_cost = (x_[:,T] * (x_[:,T] @ self.QT)).sum(1)
+        control_cost = (u_ * (u_ @ self.R)).view(batch_size, -1).sum(1)
+        return state_cost + terminal_cost + control_cost
 
     def get_optimal_controller(self):
         return LQRSSController(self.K, self.N)
 
     def instability_cost(self, x, rho=.9):
-        T = x.size(0) - 1
-        x_ = x.flatten(1)
-        lyap_values = (x_[:T+1] * (x_[:T+1] @ self.X)).sum(1)
-        violations = torch.maximum(lyap_values[1:] - rho * lyap_values[:T],
-                torch.zeros(T))
-        return torch.sum(violations)
+        batch_size, T = x.size(0), x.size(1) - 1
+        x_ = x.flatten(2)
+        lyap_values = (x_[:,:T+1] * (x_[:,:T+1] @ self.X)).sum(2)
+        lyap_diff = lyap_values[:,1:] - rho * lyap_values[:,:T]
+        violations = torch.maximum(lyap_diff, torch.zeros((batch_size, T)))
+        return torch.sum(violations, dim=1)
 
     def lyapunov_function(X, state):
         return np.dot(state, X.dot(state))
@@ -239,4 +240,4 @@ class LQRSSController(controller.AbstractController):
         self.K = K
         self.N = N
     def control(self, x):
-        return (self.K @ x.flatten()).view(self.N, -1)
+        return (self.K @ x.flatten(1).T).T.view(x.size(0),self.N, -1)
