@@ -5,16 +5,15 @@ import matplotlib.pyplot as plt
 import grnn, env.dlqr
 
 def train_it(model, env, criterion, batch_size):
-    error = 0
     x0s = env.random_x0(batch_size)
     xtraj, utraj = model.forward(x0s, env.step)
-    error += criterion(xtraj, utraj, env, model)
+    error = criterion(xtraj, utraj, env, model)
     loss = torch.sum(error) / batch_size
     return loss
 
 def train_model(model, env, criterion,
         batch_size=20, num_epoch=100, verbose=False):
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=0.03)
     for epoch in range(num_epoch):
         model.zero_grad()
         loss = train_it(model, env, criterion, batch_size=batch_size)
@@ -38,7 +37,7 @@ def generate_model(model_params, env, criterion, T, device,
     models, costs = [], []
     for _ in range(ensemble_size):
         model = grnn.GRNN(S, **model_params).to(device)
-        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        optimizer = optim.Adam(model.parameters(), lr=0.03)
         for epoch in range(num_epoch):
             model.zero_grad()
             loss = train_it(model, env, criterion, batch_size=batch_size)
@@ -56,20 +55,24 @@ def grnn_topology(env, model_params, training_params, verbose=False):
             **training_params)
     return model.S_().detach(), model
 
-def sim_controllers(env, x0s, controllers, T, device):
+def sim_controllers(env, x0s, controllers, T, device, rel_cost=True):
     """ Simulates a list of controllers for one episode
     """
     xs, us, costs = [], [], []
     for c in controllers:
-        print(c)
         x, u = env.sim_forward(c, T, x0s=x0s)
         cost = env.cost(x, u)
-        xs.append(x); us.append(u)
-        costs.append(cost.detach().cpu().item())
-    xs = torch.stack(xs, dim=0).detach().cpu().numpy()
-    us = torch.stack(us, dim=0).detach().cpu().numpy()
-    costs = np.array(costs)
-    return xs, us, costs
+        xs.append(x.detach()); us.append(u.detach())
+        costs.append(cost.detach())
+    xs = torch.stack(xs, dim=0)
+    us = torch.stack(us, dim=0)
+    costs = torch.stack(costs, dim=0)
+    if rel_cost:
+        costs_to_ret = costs / costs[0, :]
+        costs_to_ret = costs_to_ret.mean(1)
+    else:
+        costs_to_ret = costs.mean(1)
+    return xs, us, costs_to_ret
 
 def relative_costs(costs, rel_cost_wrt):
     """ Normalize the cost by dividing all costs by one single cost
@@ -90,7 +93,7 @@ def plot_controllers(xs, names, costs, rel_cost_wrt=None, dim2plot=0):
         - None
     """
     num_controllers, T, N, p = xs.shape
-    costs_to_print = costs.copy()
+    costs_to_print = costs.clone()
     if rel_cost_wrt is not None:
         costs_to_print = relative_costs(costs_to_print, rel_cost_wrt)
     plt.figure(figsize=(num_controllers * 5, 5))
@@ -105,12 +108,8 @@ def estimate_grnn_cost(env, model, T, additional_controllers=[], num_x0s=100):
     controllers.
     """
     optctrl = env.get_optimal_controller()
-    grnnctrl = model.get_controller()
+    grnnctrl = model.get_controller(1)
     controllers = [optctrl, grnnctrl] + additional_controllers
-    sum_costs = np.zeros(len(controllers))
-    for _ in range(num_x0s):
-        x0 = env.random_x0()
-        _, _, costs = sim_controllers(env, x0, controllers, T, x0.device)
-        sum_costs = sum_costs + relative_costs(costs, 0)
-    return sum_costs / num_x0s
-
+    x0s = env.random_x0(num_x0s)
+    _, _, costs = sim_controllers(env, x0s, controllers, T, x0s.device)
+    return costs

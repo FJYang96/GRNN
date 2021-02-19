@@ -46,10 +46,16 @@ class GRNN(nn.Module):
                 self.S = S
                 self.S_entries = None
                 self.S_inds = None
+
+        A = np.random.random((p,h))
+        B = np.random.random((h,q))
+        A = A / np.linalg.norm(A, ord=2)
+        B = B / np.linalg.norm(B, ord=2)
         self.register_parameter(name='A',
-                param=torch.nn.Parameter(torch.randn(p,h, dtype=torch.double)))
+                param=torch.nn.Parameter(torch.tensor(A, dtype=torch.double)))
         self.register_parameter(name='B',
-                param=torch.nn.Parameter(torch.randn(h,q, dtype=torch.double)))
+                param=torch.nn.Parameter(torch.tensor(B, dtype=torch.double)))
+
 
     def _graph_conv(self, X, Z):
         Z_new = torch.tanh( torch.matmul(self.S_(), Z) + torch.matmul(X, self.A) )
