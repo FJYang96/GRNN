@@ -53,7 +53,7 @@ class GRNNController(AbstractController):
         self.Z = Z.new_zeros(Z.size())  # Reset the hidden state
 
 class GCNNController(AbstractController):
-    def __init__(self, model, batch_size):
+    def __init__(self, model):
         super().__init__()
         self.S, self.H1, self.H2 = model.get_params()
     def control(self, x):

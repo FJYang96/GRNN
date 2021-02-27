@@ -47,10 +47,11 @@ def generate_model(model_params, env, criterion, T, device,
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
             optimizer.step()
         models.append(model)
-        costs.append(estimate_grnn_cost(env, model, T, num_x0s=val_size)[1])
+        costs.append(estimate_controller_cost(env, T,
+            [model.get_controller(val_size)], num_x0s=val_size)[1])
     return models[np.argmin(costs)]
 
-def generate_gcnn_model(S, N, T, env, criterion, device,
+def generate_gcnn_model(S, N, env, criterion, device, T,
         batch_size=20, num_epoch=100, ensemble_size=2, val_size=50, verbose=False):
     # Train multiple models
     models, costs = [], []
@@ -66,7 +67,8 @@ def generate_gcnn_model(S, N, T, env, criterion, device,
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
             optimizer.step()
         models.append(model)
-        costs.append(estimate_grnn_cost(env, model, T, num_x0s=val_size)[1])
+        costs.append(estimate_controller_cost(env, T,
+            [model.get_controller()], num_x0s=val_size)[1])
     return models[np.argmin(costs)]
 
 def grnn_topology(env, model_params, training_params, verbose=False):
@@ -122,13 +124,12 @@ def plot_controllers(xs, names, costs, rel_cost_wrt=None, dim2plot=0):
           plt.plot(np.arange(T), xs[i, :, j, dim2plot])
           plt.title(names[i]+'\nCost={:.3f}'.format(costs_to_print[i]))
 
-def estimate_grnn_cost(env, model, T, additional_controllers=[], num_x0s=100):
+def estimate_controller_cost(env, T, controllers, num_x0s=100):
     """ Estimate the cost of GRNN on the given environment and compare to other
     controllers.
     """
     optctrl = env.get_optimal_controller()
-    grnnctrl = model.get_controller(1)
-    controllers = [optctrl, grnnctrl] + additional_controllers
+    controllers = [optctrl] + controllers
     x0s = env.random_x0(num_x0s)
     _, _, costs = sim_controllers(env, x0s, controllers, T, x0s.device)
     return costs

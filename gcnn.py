@@ -60,6 +60,6 @@ class GCNN(nn.Module):
                 self.H1.detach().clone(),\
                 self.H2.detach().clone()
 
-    def get_controller(self, batch_size):
-        return GCNNController(self, batch_size)
+    def get_controller(self):
+        return GCNNController(self)
 
