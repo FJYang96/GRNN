@@ -64,7 +64,7 @@ class GRNN(nn.Module):
 
     def forward(self, x0, step):
         batch_size = x0.size(0)
-        x_traj = self.A.new_empty((batch_size, self.T+1, self.N, self.q))
+        x_traj = self.A.new_empty((batch_size, self.T+1, self.N, self.p))
         u_traj = self.A.new_empty((batch_size, self.T, self.N, self.q))
         x_traj[:,0,:,:] = x0
         Z = self.A.new_zeros((batch_size, self.T+1, self.N, self.h))

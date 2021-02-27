@@ -51,3 +51,17 @@ class GRNNController(AbstractController):
     def reset(self):
         super().reset()
         self.Z = Z.new_zeros(Z.size())  # Reset the hidden state
+
+class GCNNController(AbstractController):
+    def __init__(self, model, batch_size):
+        super().__init__()
+        self.S, self.H1, self.H2 = model.get_params()
+    def control(self, x):
+        kgnn = self.H1.size(0) - 1
+        with torch.no_grad():
+            z = x @ self.H1[0]
+            for i in range(1, kgnn+1):
+                z = z + torch.matrix_power(self.S, i) @ x @ self.H1[i]
+            z = torch.tanh(z)
+            u = self.S @ z @ self.H2[0]
+        return u

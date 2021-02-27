@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 import matplotlib.pyplot as plt
-import grnn, env.dlqr
+import grnn, gcnn, env.dlqr
 
 def train_it(model, env, criterion, batch_size):
     x0s = env.random_x0(batch_size)
@@ -12,8 +12,8 @@ def train_it(model, env, criterion, batch_size):
     return loss
 
 def train_model(model, env, criterion,
-        batch_size=20, num_epoch=100, verbose=False):
-    optimizer = optim.Adam(model.parameters(), lr=0.03)
+        batch_size=20, num_epoch=100, lr=0.03, verbose=False):
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     for epoch in range(num_epoch):
         model.zero_grad()
         loss = train_it(model, env, criterion, batch_size=batch_size)
@@ -38,6 +38,25 @@ def generate_model(model_params, env, criterion, T, device,
     for _ in range(ensemble_size):
         model = grnn.GRNN(S, **model_params).to(device)
         optimizer = optim.Adam(model.parameters(), lr=0.03)
+        for epoch in range(num_epoch):
+            model.zero_grad()
+            loss = train_it(model, env, criterion, batch_size=batch_size)
+            if(verbose and epoch % 10 == 0):
+                print('Epoch: {} \t Loss: {}'.format(epoch+1, loss.item()))
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+            optimizer.step()
+        models.append(model)
+        costs.append(estimate_grnn_cost(env, model, T, num_x0s=val_size)[1])
+    return models[np.argmin(costs)]
+
+def generate_gcnn_model(S, N, T, env, criterion, device,
+        batch_size=20, num_epoch=100, ensemble_size=2, val_size=50, verbose=False):
+    # Train multiple models
+    models, costs = [], []
+    for _ in range(ensemble_size):
+        model = gcnn.GCNN(S, N, T).to(device)
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
         for epoch in range(num_epoch):
             model.zero_grad()
             loss = train_it(model, env, criterion, batch_size=batch_size)
