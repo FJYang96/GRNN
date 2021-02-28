@@ -25,15 +25,15 @@ A_norm = 0.995
 B_norm = 1
 
 # Training Parameters
-num_epoch = 50
+num_epoch = 100
 batch_size = 20
 ensemble_size = 2
 val_size = 50
 grnn_hidden_dim = 5
-device = 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Experiment Parameters
-num_topologies = 2
+num_topologies = 10
 num_x0s = 100
 verbose = True
 num_controllers = 6
